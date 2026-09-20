@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { collector, detectMode } from "../lib/collector";
+import { collector, detectMode, isExtensionPage, probeExternal } from "../lib/collector";
 import type { CollectorForm, CollectorStatus } from "../lib/collector";
 import { usePersisted } from "../lib/storage";
 import { Badge, Button, Card, Field, TextArea, TextInput, Toggle } from "./ui";
@@ -48,6 +48,33 @@ export function CollectorPanel({
     return () => clearInterval(timer);
   }, [mode]);
 
+  // 배포된 사이트에서 열린 경우 — 확장에 직접 말을 걸 수 있는지 물어본다.
+  useEffect(() => {
+    if (mode !== "none") return;
+    let alive = true;
+    void probeExternal().then((res) => {
+      if (alive && res.ok) setDetected({ mode: "external", version: res.version });
+    });
+    return () => {
+      alive = false;
+    };
+  }, [mode]);
+
+  // 배포 사이트가 넘긴 설정으로 열린 경우(?start=1) — 그 설정을 채우고 알려 준다.
+  useEffect(() => {
+    if (!isExtensionPage()) return;
+    if (!new URLSearchParams(location.search).has("start")) return;
+    void chrome!.storage.local.get("form").then((stored) => {
+      const handed = stored.form as CollectorForm | undefined;
+      if (handed) patch(handed);
+      setNotice(
+        "배포된 사이트에서 넘어온 설정입니다. 아래에서 확인하고 권한 확인에 체크한 뒤 시작하세요.",
+      );
+    });
+    // 최초 1회만 — 이후 사용자가 고친 값을 덮어쓰지 않는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const poll = useCallback(async () => {
     if (mode === "none") return;
     try {
@@ -95,6 +122,10 @@ export function CollectorPanel({
               : "수집을 시작했습니다. 새 탭이 한 페이지씩 이동합니다.",
           );
           void poll();
+        } else if (res.handoff) {
+          // 배포 사이트에서 시작을 누른 경우 — 승인은 확장 창에서 받는다.
+          setNotice(res.reason ?? "확장 창에서 시작을 눌러 주세요.");
+          void poll();
         } else {
           setError(res.reason ?? "시작하지 못했습니다.");
         }
@@ -135,7 +166,13 @@ export function CollectorPanel({
     }
   };
 
-  if (mode === "none") return <NotConnected />;
+  // 공개 호스팅에 올라간 경우와 로컬에서 런처 없이 연 경우는 할 말이 다르다.
+  const hosted =
+    typeof location !== "undefined" &&
+    location.protocol.startsWith("http") &&
+    !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+
+  if (mode === "none") return <NotConnected hosted={hosted} />;
 
   const running = status?.running ?? false;
   const hasData = !!status && (status.pages > 0 || status.net > 0);
@@ -146,11 +183,15 @@ export function CollectorPanel({
       subtitle={
         mode === "extension"
           ? `collector v${version} · 이 앱이 확장 안에서 돌고 있어 여기서 바로 시작할 수 있습니다`
-          : `collector v${version} · 개발 서버 모드 — 시작은 확장 팝업에서 합니다`
+          : mode === "external"
+            ? `collector v${version} · 내 PC 의 확장과 연결됨 — 시작할 때만 확장 창에서 한 번 승인합니다`
+            : `collector v${version} · 개발 서버 모드 — 시작은 확장 팝업에서 합니다`
       }
       right={
         <>
-          <Badge tone="good">{mode === "extension" ? "확장 내장" : "연결됨"}</Badge>
+          <Badge tone="good">
+            {mode === "extension" ? "확장 내장" : mode === "external" ? "확장 연결됨" : "연결됨"}
+          </Badge>
           {hasData && (
             <Button variant="primary" onClick={() => void pull()}>
               결과 가져오기
@@ -263,7 +304,7 @@ export function CollectorPanel({
             화면 캡처는 UI 재구성의 시각 기준이 됩니다.
           </p>
 
-          {mode === "extension" ? (
+          {mode === "extension" || mode === "external" ? (
             <>
               <Toggle
                 checked={authorized}
@@ -289,8 +330,9 @@ export function CollectorPanel({
                 </Button>
               </div>
               <p className="text-[11px] text-ink-400">
-                처음 시작할 때 해당 사이트 접근 권한을 한 번 묻습니다. 대상 사이트에 미리
-                로그인해 두세요.{" "}
+                {mode === "external"
+                  ? "시작을 누르면 확장이 창을 하나 열어 설정을 보여줍니다 — 거기서 한 번 승인하면 이후 진행·결과는 이 화면에서 그대로 보입니다."
+                  : "처음 시작할 때 해당 사이트 접근 권한을 한 번 묻습니다. 대상 사이트에 미리 로그인해 두세요."}{" "}
                 <b className="text-ink-300">수동 탐색 모드</b>는 링크로 갈 수 없는 화면(로그인 후
                 화면, 버튼으로만 열리는 모달)을 직접 돌며 담을 때 씁니다.
               </p>
@@ -382,7 +424,35 @@ export function CollectorPanel({
   );
 }
 
-function NotConnected() {
+function NotConnected({ hosted }: { hosted: boolean }) {
+  if (hosted) {
+    return (
+      <Card title="수집기가 이 브라우저에 없습니다" subtitle="확장을 켜면 이 화면에서 바로 수집할 수 있습니다">
+        <p className="text-xs leading-relaxed text-ink-300">
+          수집은 <b className="text-ink-200">내 브라우저 세션</b>으로 돌아다니며 하는 일이라
+          collector 확장이 있어야 합니다. 확장만 떠 있으면 이 사이트가 확장과 직접 이야기하므로,
+          <b className="text-ink-200"> 설정·시작·진행·결과</b>를 전부 여기서 다룰 수 있습니다.
+        </p>
+        <ol className="mt-3 list-decimal space-y-1 pl-5 text-xs leading-relaxed text-ink-300">
+          <li>
+            내 PC 에서 <code className="text-accent-300">run.bat</code> (macOS·Linux 는{" "}
+            <code className="text-accent-300">./run.sh</code>) 를 실행해 두세요. 확장이 로드된
+            브라우저가 열립니다.
+          </li>
+          <li>그 브라우저에서 이 주소를 다시 열면 아래에 수집 설정이 나타납니다.</li>
+          <li>
+            확장 없이 쓰실 거면, 캡처 <code className="text-accent-300">.json</code> 파일을 아래
+            <b className="text-ink-200"> “캡처 불러오기”</b> 에 올리면 분석·프롬프트·정적 사이트
+            .zip·백엔드 명세 .md 까지 그대로 됩니다.
+          </li>
+        </ol>
+        <p className="mt-3 text-[11px] text-ink-400">
+          올린 파일과 캡처는 이 브라우저 안에서만 처리됩니다 — 서버로 전송되지 않습니다.
+        </p>
+      </Card>
+    );
+  }
+
   return (
     <Card title="수집기 확장이 연결되지 않았습니다">
       <p className="text-xs leading-relaxed text-ink-300">

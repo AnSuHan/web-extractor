@@ -12,6 +12,12 @@ interface ChromeRuntime {
   getManifest(): { version: string; name: string };
   getURL(path: string): string;
   sendMessage(message: unknown): Promise<unknown>;
+  /** 다른 확장(= 우리 확장)에게 보내는 형태. 배포된 웹페이지에서 쓰는 통로다. */
+  sendMessage(
+    extensionId: string,
+    message: unknown,
+    callback: (response: unknown) => void,
+  ): void;
   lastError?: { message?: string };
 }
 

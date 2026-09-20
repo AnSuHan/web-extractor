@@ -7,6 +7,7 @@ dist
 
 # 빌드 산출물
 *.tsbuildinfo
+deploy/
 
 # 런처가 만드는 것
 .browser-profile/

@@ -5,7 +5,7 @@ import type { ImageAsset } from "../lib/types";
 import { inferBackend, inferenceToMarkdown, modelsToTypeScript } from "../lib/infer";
 import { Badge, Button, Card, Toggle } from "./ui";
 import { CollectorPanel } from "./CollectorPanel";
-import { collector } from "../lib/collector";
+import { collector, isExtensionPage } from "../lib/collector";
 import { buildBackendSpec, buildStaticSite, downloadBlob } from "../lib/export";
 import { download } from "./PromptPanel";
 
@@ -658,6 +658,17 @@ function Screens({
 
   const fetchMore = () => {
     setNotice(null);
+    // 권한 요청은 확장 컨텍스트에서만 뜬다. 배포된 사이트에서는 확장 창을 열어 이어서 한다.
+    if (!isExtensionPage()) {
+      void collector.openExtensionApp("?assets=1").then((ok) =>
+        setNotice(
+          ok
+            ? "확장 창을 열었습니다. 거기서 같은 버튼을 누르면 남은 리소스를 받아 옵니다."
+            : "확장에 연결하지 못했습니다. 확장이 로드된 브라우저에서 열어 주세요.",
+        ),
+      );
+      return;
+    }
     void collector
       .fetchMoreAssets(blockedOrigins)
       .then((res) =>

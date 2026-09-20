@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "web-extractor collector",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "권한이 있는 웹앱을 내 브라우저 세션으로 돌아다니며 API 응답·HTML 구조·CSS·화면 캡처를 수집합니다.",
   "permissions": [
     "storage",
@@ -17,6 +17,13 @@
   "optional_host_permissions": [
     "*://*/*"
   ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAm4P8cF1nv1AwqluS6rNtgh8KHJvBqqFu7KpqwOLolhHJ2B+1NM8YSjmQH/6dO3tlhnRCw4a6EigbazhQeW78ALls9ugg6sM3zlkuZjPLgJZUd1+wBVFoj5c32rt4w+LBcmoEO6X0FN5SPJDaVkvPPDoVdMXr/PCuK/B9PQWdLkwHxYt6vyt6UPfoMQZ4DXkA/sZASgmLMfmFQS1pXmVmEXmMZL4a+YBfp7l1d/3AhGzliOkW7687ciAOIrSrCATGrYb4gfBt80Ulo//oQ3eNeHpUlRXAVyDoudY90N72ZHIR5iajsEgvhRHQ6dvMlW97EHn1l+2GFn6HmFIolSmpoQIDAQAB",
+  "externally_connectable": {
+    "matches": [
+      "http://localhost/*",
+      "http://127.0.0.1/*"
+    ]
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "web-extractor collector"

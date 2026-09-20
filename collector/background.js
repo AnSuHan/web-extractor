@@ -31,6 +31,8 @@ const DEFAULTS = {
 /** @type {null | object} */
 let state = null;
 let saveTimer = null;
+/** 조각으로 내보내는 중인 결과. 다 보내면 버린다. */
+let exportCache = null;
 
 /* ------------------------------ 저장 ------------------------------ */
 
@@ -573,8 +575,9 @@ async function captureScreen(tabId) {
 
 /* ---------------------------- 메시지 처리 ---------------------------- */
 
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  (async () => {
+/** 확장 내부(앱 페이지·팝업·콘텐츠 스크립트)에서 온 메시지를 처리한다. */
+async function handleMessage(msg, sender, sendResponse) {
+  {
     await loadState();
 
     switch (msg?.type) {
@@ -650,6 +653,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       }
       case "export": {
         sendResponse({ ok: true, bundle: state ? buildBundle(state) : null });
+        return;
+      }
+      case "export-begin": {
+        // 배포된 앱은 메시지 하나로 수십 MB 를 받기 어렵다 — 만들어 두고 조각으로 준다.
+        if (!state) {
+          sendResponse({ ok: false, error: "수집 기록이 없습니다." });
+          return;
+        }
+        const json = JSON.stringify(buildBundle(state));
+        exportCache = { id: `x${Date.now()}`, json };
+        sendResponse({ ok: true, id: exportCache.id, length: json.length });
+        return;
+      }
+      case "export-chunk": {
+        if (!exportCache || exportCache.id !== msg.id) {
+          sendResponse({ ok: false, error: "전송이 만료됐습니다. 다시 가져와 주세요." });
+          return;
+        }
+        const start = Number(msg.start) || 0;
+        const size = Number(msg.size) || 1_000_000;
+        sendResponse({ ok: true, text: exportCache.json.slice(start, start + size) });
+        return;
+      }
+      case "export-end": {
+        exportCache = null;
+        sendResponse({ ok: true });
         return;
       }
       case "reset": {
@@ -745,7 +774,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       default:
         sendResponse({ ok: false, error: "알 수 없는 메시지" });
     }
-  })();
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  void handleMessage(msg, sender, sendResponse);
   return true; // 비동기 응답
 });
 
@@ -847,6 +880,67 @@ function contentTypeOf(headers) {
   const h = (headers ?? []).find((x) => /^content-type$/i.test(x.name));
   return h ? h.value : "";
 }
+
+/* ------------------------ 배포된 웹앱에서 온 메시지 ------------------------ */
+
+/**
+ * `externally_connectable` 로 허용된 오리진(= 배포한 앱)이 보내오는 메시지.
+ *
+ * 내부 메시지와 **의도적으로 다르게** 다룬다.
+ *   - 읽기(상태·결과)와 설정 저장, 중단·비우기는 그대로 허용한다.
+ *   - 수집 **시작은 여기서 실행하지 않는다.** 사이트 접근 권한은 확장 컨텍스트 안의
+ *     사용자 제스처를 요구하므로(그리고 웹페이지가 조용히 수집을 켜게 두면 안 되므로),
+ *     설정만 받아 두고 확장 안의 앱 페이지를 열어 사용자가 직접 승인하게 한다.
+ *   - 페이지 스냅샷·네트워크 기록(`page`, `net-batch`, `page-done`, `ready`)은
+ *     **절대 받지 않는다.** 받으면 웹페이지가 가짜 수집 결과를 밀어 넣을 수 있다.
+ */
+const EXTERNAL_ALLOWED = new Set([
+  "ping",
+  "status",
+  "export",
+  "export-begin",
+  "export-chunk",
+  "export-end",
+  "prefill",
+  "stop",
+  "reset",
+  "assets-more",
+]);
+
+chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  (async () => {
+    const type = msg?.type;
+
+    if (type === "ping") {
+      sendResponse({ ok: true, version: chrome.runtime.getManifest().version });
+      return;
+    }
+
+    if (type === "open-app") {
+      await chrome.tabs.create({ url: chrome.runtime.getURL(`app/index.html${msg.query ?? ""}`) });
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (type === "start-request") {
+      // 설정만 넘겨받고, 승인은 확장 안의 앱에서 받는다.
+      await chrome.storage.local.set({ form: msg.form ?? null, handoff: { at: Date.now(), from: sender.origin ?? null } });
+      await chrome.tabs.create({ url: chrome.runtime.getURL("app/index.html?start=1") });
+      sendResponse({ ok: true, handoff: true });
+      return;
+    }
+
+    if (!EXTERNAL_ALLOWED.has(type)) {
+      sendResponse({ ok: false, error: "외부에서 허용되지 않는 요청입니다." });
+      return;
+    }
+
+    // 나머지는 내부와 같은 처리기를 탄다. (서비스 워커에서 sendMessage 를 다시 부르면
+    // 자기 자신에게는 닿지 않으므로, 처리 함수를 직접 호출한다.)
+    await handleMessage(msg, { origin: sender.origin }, sendResponse);
+  })();
+  return true;
+});
 
 chrome.runtime.onStartup.addListener(() => void loadState());
 chrome.runtime.onInstalled.addListener(() => void loadState());
