@@ -1,34 +1,49 @@
 import { useMemo, useRef, useState } from "react";
-import { loadCapture, buildSiteTree, collectForms } from "../lib/capture";
-import type { LoadedCapture, SiteNode } from "../lib/capture";
+import { loadCapture, buildSiteTree, collectForms, screenshotToImage, summarizeAssets } from "../lib/capture";
+import type { CaptureAsset, LoadedCapture, SiteNode } from "../lib/capture";
+import type { ImageAsset } from "../lib/types";
 import { inferBackend, inferenceToMarkdown, modelsToTypeScript } from "../lib/infer";
 import { Badge, Button, Card, Toggle } from "./ui";
 import { CollectorPanel } from "./CollectorPanel";
+import { collector } from "../lib/collector";
 import { download } from "./PromptPanel";
 
-type View = "overview" | "sitemap" | "endpoints" | "models" | "backend" | "forms" | "setup";
+type View =
+  | "overview"
+  | "sitemap"
+  | "endpoints"
+  | "models"
+  | "backend"
+  | "forms"
+  | "screens"
+  | "setup";
 
 export function CollectTab({
+  loaded,
+  onLoaded,
   onUseCapture,
+  onUseImages,
 }: {
+  /** 불러온 캡처는 App 이 들고 있는다 — 탭을 옮겼다 돌아와도 분석이 남아 있어야 한다. */
+  loaded: { capture: LoadedCapture; name: string } | null;
+  onLoaded: (next: { capture: LoadedCapture; name: string } | null) => void;
   onUseCapture: (capture: LoadedCapture) => void;
+  onUseImages: (images: ImageAsset[]) => void;
 }) {
-  const [capture, setCapture] = useState<LoadedCapture | null>(null);
-  const [fileName, setFileName] = useState("");
+  const capture = loaded?.capture ?? null;
+  const fileName = loaded?.name ?? "";
   const [error, setError] = useState<string | null>(null);
   const [includeAssets, setIncludeAssets] = useState(false);
-  const [view, setView] = useState<View>("setup");
+  const [view, setView] = useState<View>(loaded ? "overview" : "setup");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadJson = (json: string, name: string, assets = includeAssets) => {
     setError(null);
     try {
-      setCapture(loadCapture(json, assets));
-      setFileName(name);
+      onLoaded({ capture: loadCapture(json, assets), name });
       setView("overview");
     } catch (err) {
-      setCapture(null);
-      setFileName("");
+      onLoaded(null);
       setError(err instanceof Error ? err.message : String(err));
     }
   };
@@ -62,6 +77,7 @@ export function CollectTab({
           { id: "models", label: "데이터 모델" },
           { id: "backend", label: "백엔드 추론" },
           { id: "forms", label: "폼·컨트롤" },
+          { id: "screens", label: "화면·리소스" },
         ] as { id: View; label: string }[])
       : []),
   ];
@@ -89,8 +105,7 @@ export function CollectTab({
               <Button
                 variant="ghost"
                 onClick={() => {
-                  setCapture(null);
-                  setFileName("");
+                  onLoaded(null);
                   setView("setup");
                 }}
               >
@@ -137,8 +152,7 @@ export function CollectTab({
               checked={includeAssets}
               onChange={(v) => {
                 setIncludeAssets(v);
-                setCapture(null);
-                setFileName("");
+                onLoaded(null);
                 setView("setup");
               }}
               label="이미지·CSS·JS 등 정적 자산도 엔드포인트로 집계"
@@ -174,6 +188,7 @@ export function CollectTab({
           {view === "models" && <Models inference={inference} />}
           {view === "backend" && <Backend inference={inference} />}
           {view === "forms" && <Forms capture={capture} />}
+          {view === "screens" && <Screens capture={capture} onUseImages={onUseImages} />}
         </>
       )}
     </div>
@@ -308,11 +323,16 @@ function SetupGuide() {
 
 function Overview({ capture }: { capture: LoadedCapture }) {
   const { bundle, har } = capture;
+  const cov = bundle.coverage;
   const stats: [string, string][] = [
     ["방문한 페이지", String(bundle.stats.pages)],
     ["고유 엔드포인트", String(har.endpoints.length)],
     ["전체 요청", String(bundle.stats.requests)],
-    ["건너뛴 URL", String(bundle.stats.skipped)],
+    ...(cov
+      ? ([["발견 / 미방문", `${cov.discovered} / ${cov.unvisited}`]] as [string, string][])
+      : []),
+    ["정적 리소스", String(capture.assets.length)],
+    ["화면 캡처", String(capture.screenshots.length)],
     ["소요 시간", `${Math.round(bundle.stats.durationMs / 1000)}초`],
     ["호스트", har.hosts.join(", ") || "–"],
   ];
@@ -330,6 +350,19 @@ function Overview({ capture }: { capture: LoadedCapture }) {
             </div>
           ))}
         </dl>
+        {cov && cov.unvisited > 0 && (
+          <p className="mt-3 rounded-lg border border-amber-900 bg-amber-950/50 px-3 py-2 text-[11px] leading-relaxed text-amber-200">
+            링크로 발견한 {cov.discovered}개 중 <b>{cov.unvisited}개를 방문하지 못했습니다</b>
+            {cov.stoppedAtLimit && " — 최대 페이지 수에 걸려 멈췄습니다. 상한을 올려 다시 수집하세요."}
+            . 이 캡처만으로는 사이트 전체가 아닙니다.
+          </p>
+        )}
+        {capture.assets.length === 0 && (
+          <p className="mt-3 rounded-lg border border-amber-900 bg-amber-950/50 px-3 py-2 text-[11px] leading-relaxed text-amber-200">
+            정적 리소스(CSS·JS·폰트) 본문이 없습니다. HTML 구조만으로는 화면을 되살릴 수
+            없습니다 — 수집기의 <b>“CSS·JS·폰트 본문도 받기”</b>를 켜고 다시 수집하세요.
+          </p>
+        )}
         {capture.frontend.length > 0 && (
           <div className="mt-3">
             <p className="mb-1.5 text-xs font-medium text-ink-300">프런트엔드 지문</p>
@@ -561,6 +594,233 @@ function Backend({ inference }: { inference: ReturnType<typeof inferBackend> }) 
 }
 
 /* ------------------------------------------------------------------ */
+
+/**
+ * 화면 캡처와 정적 리소스.
+ *
+ * 이 두 가지가 "HTML 은 맞는데 겉모습이 전혀 다른" 재현을 막는다.
+ * 화면 캡처는 UI 재구성의 시각 기준이 되고, CSS·JS·폰트 본문은 실제 스타일을 준다.
+ */
+function Screens({
+  capture,
+  onUseImages,
+}: {
+  capture: LoadedCapture;
+  onUseImages: (images: ImageAsset[]) => void;
+}) {
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const summary = useMemo(() => summarizeAssets(capture.assets), [capture.assets]);
+  const skipped = capture.bundle.assetSkipped ?? [];
+
+  // 권한이 없어 못 받은 외부 오리진들. 허용하면 그 자리에서 마저 받을 수 있다.
+  const blockedOrigins = useMemo(() => {
+    const origins = new Set<string>();
+    for (const x of skipped) {
+      if (!x.reason.includes("권한")) continue;
+      try {
+        origins.add(new URL(x.url).origin);
+      } catch {
+        /* URL 이 아니면 버린다 */
+      }
+    }
+    return [...origins];
+  }, [skipped]);
+
+  const fetchMore = () => {
+    setNotice(null);
+    void collector
+      .fetchMoreAssets(blockedOrigins)
+      .then((res) =>
+        setNotice(
+          res.started
+            ? "남은 리소스를 받고 있습니다. 끝나면 수집기의 “결과 가져오기” 로 다시 불러오세요."
+            : (res.reason ?? "받지 못했습니다."),
+        ),
+      )
+      .catch((err: unknown) => setNotice(err instanceof Error ? err.message : String(err)));
+  };
+
+  const toggle = (url: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(url)) next.delete(url);
+      else next.add(url);
+      return next;
+    });
+
+  const send = async () => {
+    const chosen = capture.screenshots.filter((s) => picked.has(s.url));
+    if (chosen.length === 0) return;
+    setBusy(true);
+    try {
+      // 이미지 한도가 있으므로 한 번에 너무 많이 보내지 않는다.
+      const images = await Promise.all(chosen.slice(0, 8).map(screenshotToImage));
+      onUseImages(images);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+
+  return (
+    <div className="space-y-4">
+      <Card
+        title={`화면 캡처 ${capture.screenshots.length}장`}
+        subtitle="보이는 영역을 페이지마다 한 장씩 찍은 것 — UI 재구성의 시각 기준"
+        right={
+          capture.screenshots.length > 0 && (
+            <>
+              <Button
+                variant="ghost"
+                onClick={() =>
+                  setPicked((prev) =>
+                    prev.size === capture.screenshots.length
+                      ? new Set()
+                      : new Set(capture.screenshots.map((s) => s.url)),
+                  )
+                }
+              >
+                {picked.size === capture.screenshots.length ? "선택 해제" : "전체 선택"}
+              </Button>
+              <Button variant="primary" disabled={picked.size === 0 || busy} onClick={() => void send()}>
+                {busy ? "보내는 중…" : `선택한 ${picked.size}장 → UI 재구성`}
+              </Button>
+            </>
+          )
+        }
+      >
+        {capture.screenshots.length === 0 ? (
+          <p className="text-xs text-ink-400">
+            화면 캡처가 없습니다. 수집기의 “페이지마다 화면 캡처” 를 켜고 다시 수집하세요.
+            (수집 탭이 활성 상태일 때만 찍을 수 있습니다 — 수집 중 다른 탭을 보고 있으면
+            남의 화면을 찍지 않기 위해 건너뜁니다.)
+          </p>
+        ) : (
+          <>
+            <p className="mb-2 text-[11px] text-ink-400">
+              한 번에 최대 8장까지 보냅니다. 여러 장을 보내면 “같은 인터페이스의 다른 상태”로
+              합치라는 지시가 프롬프트에 들어갑니다.
+            </p>
+            <div className="grid max-h-[32rem] grid-cols-2 gap-3 overflow-auto md:grid-cols-3">
+              {capture.screenshots.map((shot) => {
+                const on = picked.has(shot.url);
+                return (
+                  <button
+                    key={shot.url}
+                    type="button"
+                    onClick={() => toggle(shot.url)}
+                    className={`overflow-hidden rounded-lg border text-left transition-colors ${
+                      on ? "border-accent-500 bg-ink-800" : "border-ink-700 bg-ink-850 hover:border-ink-600"
+                    }`}
+                  >
+                    <img src={shot.dataUrl} alt={shot.title} className="h-32 w-full object-cover object-top" />
+                    <div className="px-2 py-1.5">
+                      <p className="truncate text-[11px] text-ink-200" title={shot.title}>
+                        {shot.title || "(제목 없음)"}
+                      </p>
+                      <p className="truncate font-mono text-[10px] text-ink-500" title={shot.url}>
+                        {shot.url}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </Card>
+
+      <Card
+        title={`정적 리소스 ${summary.total}개`}
+        subtitle={summary.total > 0 ? `본문 합계 ${mb(summary.bytes)}` : undefined}
+        right={
+          summary.total > 0 && (
+            <Button variant="ghost" onClick={() => downloadAssets(capture.assets)}>
+              CSS·JS 묶어 내려받기
+            </Button>
+          )
+        }
+      >
+        {summary.total === 0 ? (
+          <p className="text-xs text-ink-400">
+            받아 둔 정적 리소스가 없습니다. 수집기의 “CSS·JS·폰트 본문도 받기” 를 켜면 순회가
+            끝난 뒤 따로 받아 둡니다.
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {summary.byKind.map(([kind, v]) => (
+                <div key={kind} className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2">
+                  <p className="text-[11px] text-ink-400">{kind}</p>
+                  <p className="mt-0.5 text-sm font-medium text-ink-100">
+                    {v.count}개 · {mb(v.bytes)}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs text-ink-400 hover:text-ink-200">
+                목록 보기
+              </summary>
+              <ul className="mt-2 max-h-64 space-y-1 overflow-auto font-mono text-[10px] text-ink-400">
+                {capture.assets.map((a) => (
+                  <li key={a.url} className="break-all">
+                    <span className="text-ink-500">[{a.kind}]</span> {a.url}{" "}
+                    <span className="text-ink-600">{(a.bytes / 1024).toFixed(0)}KB</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </>
+        )}
+        {blockedOrigins.length > 0 && (
+          <div className="mt-3 rounded-lg border border-amber-900 bg-amber-950/50 px-3 py-2">
+            <p className="text-[11px] leading-relaxed text-amber-200">
+              외부 오리진 {blockedOrigins.length}곳의 리소스를 권한이 없어 받지 못했습니다
+              ({blockedOrigins.slice(0, 3).join(", ")}
+              {blockedOrigins.length > 3 && " 외"}). CDN 에서 오는 CSS·폰트가 여기 섞여 있으면
+              재현했을 때 겉모습이 달라집니다.
+            </p>
+            <Button className="mt-2" onClick={fetchMore}>
+              이 오리진들 권한 받고 마저 받기
+            </Button>
+          </div>
+        )}
+        {notice && (
+          <p className="mt-2 rounded-lg border border-ink-700 bg-ink-850 px-3 py-2 text-[11px] text-ink-300">
+            {notice}
+          </p>
+        )}
+        {skipped.length > 0 && (
+          <details className="mt-2">
+            <summary className="cursor-pointer text-xs text-ink-400 hover:text-ink-200">
+              받지 못한 리소스 {skipped.length}건
+            </summary>
+            <ul className="mt-2 max-h-40 space-y-1 overflow-auto font-mono text-[10px] text-ink-400">
+              {skipped.slice(0, 200).map((x, i) => (
+                <li key={i} className="break-all">
+                  <span className="text-ink-500">[{x.reason}]</span> {x.url}
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/** CSS·JS 본문을 한 파일로 묶어 내려받는다 — 재현할 때 그대로 넣으면 된다. */
+function downloadAssets(assets: CaptureAsset[]) {
+  const text = assets
+    .filter((a) => a.encoding === "text")
+    .map((a) => `/* ===== ${a.url} (${a.contentType}, ${a.bytes}B) ===== */\n${a.body}`)
+    .join("\n\n");
+  download("web-extractor-assets.txt", text);
+}
 
 function Forms({ capture }: { capture: LoadedCapture }) {
   const forms = useMemo(() => collectForms(capture.bundle.pages), [capture]);

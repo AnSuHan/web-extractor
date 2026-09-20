@@ -90,11 +90,15 @@ async function poll() {
   }
 
   $("status").classList.remove("hidden");
-  $("s-state").textContent = status.running
-    ? `수집 중 (${status.visited}/${status.maxPages})`
-    : status.finishedAt
+  $("s-state").textContent = !status.running
+    ? status.finishedAt
       ? "완료"
-      : "대기";
+      : "대기"
+    : status.phase === "assets"
+      ? `정적 리소스 ${status.assets ?? 0}개`
+      : status.manual
+        ? `수동 탐색 중 (${status.pages})`
+        : `수집 중 (${status.visited}/${status.maxPages})`;
   $("s-pages").textContent = status.pages;
   $("s-queued").textContent = status.queued;
   $("s-net").textContent = status.net;

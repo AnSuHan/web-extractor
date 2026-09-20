@@ -8,13 +8,16 @@ const DEFAULT_FORM: CollectorForm = {
   seed: "",
   include: "",
   exclude: "**/logout**\n**/delete/**\n**/sign-out**",
-  maxPages: 40,
+  maxPages: 200,
   maxDepth: 3,
   delayMs: 1500,
   sameOriginOnly: true,
   respectRobots: true,
   maskSecrets: true,
   captureHtml: true,
+  captureAssets: true,
+  captureImages: false,
+  captureScreenshots: true,
 };
 
 export function CollectorPanel({
@@ -74,7 +77,7 @@ export function CollectorPanel({
   };
 
   // 권한 창은 사용자 제스처에서만 뜬다. 클릭 핸들러가 끝나기 전에 호출해야 한다.
-  const start = () => {
+  const start = (manual = false) => {
     const invalid = validate();
     if (invalid) {
       setError(invalid);
@@ -83,10 +86,14 @@ export function CollectorPanel({
     setError(null);
     setNotice(null);
     void collector
-      .start(form)
+      .start(form, { manual })
       .then((res) => {
         if (res.started) {
-          setNotice("수집을 시작했습니다. 새 탭이 한 페이지씩 이동합니다.");
+          setNotice(
+            manual
+              ? "수동 탐색을 시작했습니다. 새 탭에서 직접 클릭하며 돌아다니세요 — 보이는 화면과 요청을 모두 기록합니다. 끝나면 '중단' 을 누르세요."
+              : "수집을 시작했습니다. 새 탭이 한 페이지씩 이동합니다.",
+          );
           void poll();
         } else {
           setError(res.reason ?? "시작하지 못했습니다.");
@@ -234,7 +241,27 @@ export function CollectorPanel({
               onChange={(captureHtml) => patch({ captureHtml })}
               label="HTML 전문 저장"
             />
+            <Toggle
+              checked={form.captureAssets}
+              onChange={(captureAssets) => patch({ captureAssets })}
+              label="CSS·JS·폰트 본문도 받기"
+            />
+            <Toggle
+              checked={form.captureImages}
+              onChange={(captureImages) => patch({ captureImages })}
+              label="이미지까지 받기 (용량 큼)"
+            />
+            <Toggle
+              checked={form.captureScreenshots}
+              onChange={(captureScreenshots) => patch({ captureScreenshots })}
+              label="페이지마다 화면 캡처"
+            />
           </div>
+          <p className="text-[11px] text-ink-400">
+            HTML 만으로는 화면을 되살릴 수 없습니다 — <b className="text-ink-300">CSS·JS·폰트</b>는
+            페이지가 직접 받는 것이라 요청 후킹에 잡히지 않아, 순회가 끝난 뒤 따로 받아 둡니다.
+            화면 캡처는 UI 재구성의 시각 기준이 됩니다.
+          </p>
 
           {mode === "extension" ? (
             <>
@@ -243,17 +270,29 @@ export function CollectorPanel({
                 onChange={setAuthorized}
                 label="이 사이트를 수집할 권한이 있습니다"
               />
-              <Button
-                variant="primary"
-                onClick={start}
-                disabled={running || !authorized}
-                className="w-full py-2 text-sm"
-              >
-                {running ? "수집 중…" : "수집 시작"}
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="primary"
+                  onClick={() => start(false)}
+                  disabled={running || !authorized}
+                  className="flex-1 py-2 text-sm"
+                >
+                  {running ? "수집 중…" : "수집 시작"}
+                </Button>
+                <Button
+                  onClick={() => start(true)}
+                  disabled={running || !authorized}
+                  className="flex-1 py-2 text-sm"
+                  title="자동으로 이동하지 않고, 내가 직접 클릭하며 여는 화면만 기록합니다"
+                >
+                  수동 탐색 모드
+                </Button>
+              </div>
               <p className="text-[11px] text-ink-400">
                 처음 시작할 때 해당 사이트 접근 권한을 한 번 묻습니다. 대상 사이트에 미리
-                로그인해 두세요.
+                로그인해 두세요.{" "}
+                <b className="text-ink-300">수동 탐색 모드</b>는 링크로 갈 수 없는 화면(로그인 후
+                화면, 버튼으로만 열리는 모달)을 직접 돌며 담을 때 씁니다.
               </p>
             </>
           ) : (
@@ -292,15 +331,27 @@ export function CollectorPanel({
                   [
                     [
                       "상태",
-                      running
-                        ? `수집 중 ${status.visited}/${status.maxPages}`
-                        : status.finishedAt
+                      !running
+                        ? status.finishedAt
                           ? "완료"
-                          : "대기",
+                          : "대기"
+                        : status.phase === "assets"
+                          ? `정적 리소스 ${status.assets}개`
+                          : status.manual
+                            ? `수동 탐색 중 (${status.pages})`
+                            : `수집 중 ${status.visited}/${status.maxPages}`,
                     ],
                     ["페이지", String(status.pages)],
-                    ["대기 중", String(status.queued)],
+                    [
+                      "발견 / 미방문",
+                      `${status.discovered ?? status.visited} / ${Math.max(
+                        (status.discovered ?? status.visited) - status.visited,
+                        0,
+                      )}`,
+                    ],
                     ["잡은 요청", String(status.net)],
+                    ["정적 리소스", String(status.assets ?? 0)],
+                    ["화면 캡처", String(status.shots ?? 0)],
                   ] as [string, string][]
                 ).map(([k, v]) => (
                   <div key={k} className="rounded-lg border border-ink-700 bg-ink-850 px-3 py-2">

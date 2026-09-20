@@ -14,11 +14,19 @@
 
 export interface CollectorStatus {
   running: boolean;
+  /** 수동 탐색 모드 — 자동으로 이동하지 않고 사용자가 여는 화면만 기록한다. */
+  manual: boolean;
+  /** "crawl" 순회 중 · "assets" 정적 리소스 받는 중 · "done" 끝 */
+  phase: "crawl" | "assets" | "done";
   visited: number;
   queued: number;
+  /** 링크로 발견한 범위 안 URL 수. 방문 수와 비교하면 얼마나 훑었는지 보인다. */
+  discovered: number;
   pages: number;
   net: number;
   skipped: number;
+  assets: number;
+  shots: number;
   maxPages: number;
   seed: string;
   startedAt: number;
@@ -37,6 +45,12 @@ export interface CollectorForm {
   respectRobots: boolean;
   maskSecrets: boolean;
   captureHtml: boolean;
+  /** CSS·JS·폰트 본문까지 받는다 — 이것이 없으면 재현해도 겉모습이 달라진다. */
+  captureAssets: boolean;
+  /** 이미지까지 받는다. 용량이 크게 늘어난다. */
+  captureImages: boolean;
+  /** 페이지마다 보이는 화면을 한 장 찍는다. */
+  captureScreenshots: boolean;
 }
 
 export type CollectorMode = "extension" | "bridge" | "none";
@@ -122,6 +136,9 @@ function toConfig(form: CollectorForm) {
     respectRobots: form.respectRobots,
     maskSecrets: form.maskSecrets,
     captureHtml: form.captureHtml,
+    captureAssets: form.captureAssets,
+    captureImages: form.captureImages,
+    captureScreenshots: form.captureScreenshots,
   };
 }
 
@@ -142,7 +159,10 @@ export const collector = {
    * 이 함수는 반드시 버튼 클릭 핸들러에서 직접 호출되어야 한다.
    * await 를 먼저 걸면 제스처가 소모되어 권한 창이 뜨지 않는다.
    */
-  async start(form: CollectorForm): Promise<{ started: boolean; reason?: string }> {
+  async start(
+    form: CollectorForm,
+    options: { manual?: boolean } = {},
+  ): Promise<{ started: boolean; reason?: string }> {
     if (!isExtensionPage()) {
       return { started: false, reason: "확장 페이지에서만 시작할 수 있습니다." };
     }
@@ -162,14 +182,42 @@ export const collector = {
 
     await chrome!.storage.local.set({ form });
     // 수집은 전용 탭에서 돈다 — 이 앱 탭은 그대로 두고 진행 상황을 본다.
+    // 수동 탐색 모드에서는 그 탭이 사용자가 직접 돌아다니는 탭이 된다.
     const tab = await chrome!.tabs.create({ url: "about:blank", active: true });
     const res = (await chrome!.runtime.sendMessage({
       type: "start",
       config,
       tabId: tab.id,
+      manual: !!options.manual,
     })) as { ok?: boolean } | undefined;
 
     return res?.ok ? { started: true } : { started: false, reason: "확장이 시작하지 못했습니다." };
+  },
+
+  /**
+   * 권한 밖이라 받지 못한 리소스를 마저 받는다.
+   *
+   * 외부 CDN(jsdelivr 등)에서 오는 CSS·폰트는 수집 시점에 권한이 없어 건너뛴다.
+   * 이 함수는 그 오리진들의 권한을 한 번 물어본 뒤 남은 것을 받아 온다.
+   * 권한 창은 사용자 제스처에서만 뜨므로 클릭 핸들러에서 직접 불러야 한다.
+   */
+  async fetchMoreAssets(
+    origins: string[],
+  ): Promise<{ started: boolean; reason?: string }> {
+    if (!isExtensionPage()) {
+      return { started: false, reason: "확장 페이지에서만 받을 수 있습니다." };
+    }
+    if (origins.length === 0) return { started: false, reason: "받을 리소스가 없습니다." };
+
+    const granted = await chrome!.permissions.request({
+      origins: origins.map((o) => `${o}/*`),
+    });
+    if (!granted) return { started: false, reason: "권한을 허용해야 받을 수 있습니다." };
+
+    const res = (await chrome!.runtime.sendMessage({ type: "assets-more" })) as
+      | { ok?: boolean; reason?: string }
+      | undefined;
+    return res?.ok ? { started: true } : { started: false, reason: res?.reason ?? "시작하지 못했습니다." };
   },
 
   async stop(): Promise<void> {

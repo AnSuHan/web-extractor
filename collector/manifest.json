@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "web-extractor collector",
-  "version": "1.0.0",
-  "description": "권한이 있는 웹앱을 내 브라우저 세션으로 돌아다니며 API 응답·HTML 구조·백엔드 단서를 수집합니다.",
+  "version": "1.1.0",
+  "description": "권한이 있는 웹앱을 내 브라우저 세션으로 돌아다니며 API 응답·HTML 구조·CSS·화면 캡처를 수집합니다.",
   "permissions": [
     "storage",
     "unlimitedStorage",
     "scripting",
     "tabs",
-    "webNavigation"
+    "webNavigation",
+    "debugger"
   ],
   "host_permissions": [
     "https://api.anthropic.com/*"

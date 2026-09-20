@@ -20,6 +20,11 @@ export default function App() {
   const [tab, setTab] = usePersisted<TabId>("tab", "collect");
   const [images, setImages] = useState<ImageAsset[]>([]);
   const [capture, setCapture] = useState<LoadedCapture | null>(null);
+  // 수집 탭에서 불러온 캡처. 탭을 옮겨도 분석 결과가 날아가지 않도록 여기에 둔다.
+  const [loadedCapture, setLoadedCapture] = useState<{
+    capture: LoadedCapture;
+    name: string;
+  } | null>(null);
   const [history, setHistory] = useState<HistoryItem[]>(() => loadHistory());
   const [showHistory, setShowHistory] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -44,6 +49,17 @@ export default function App() {
       flash("보관함에 저장했습니다.");
     },
     [history, tab, flash],
+  );
+
+  // 캡처한 화면을 UI 재구성 탭의 입력 이미지로 넘긴다.
+  const useImages = useCallback(
+    (next: ImageAsset[]) => {
+      if (next.length === 0) return;
+      setImages(next);
+      setTab("ui");
+      flash(`화면 ${next.length}장을 UI 재구성 탭으로 보냈습니다.`);
+    },
+    [setTab, flash],
   );
 
   const useCapture = useCallback(
@@ -155,7 +171,12 @@ export default function App() {
       )}
 
       <main className="mx-auto max-w-[110rem] px-4 py-4 sm:px-6">
-        {tab === "collect" && <CollectTab onUseCapture={useCapture} />}
+        {tab === "collect" && <CollectTab
+              loaded={loadedCapture}
+              onLoaded={setLoadedCapture}
+              onUseCapture={useCapture}
+              onUseImages={useImages}
+            />}
         {tab === "ui" && <UiTab images={images} setImages={setImages} onSave={save} />}
         {tab === "nav" && <NavTab onSave={save} seedHint={capture?.bundle.seed} />}
         {tab === "api" && <ApiTab onSave={save} capture={capture} />}
