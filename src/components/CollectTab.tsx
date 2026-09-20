@@ -6,6 +6,7 @@ import { inferBackend, inferenceToMarkdown, modelsToTypeScript } from "../lib/in
 import { Badge, Button, Card, Toggle } from "./ui";
 import { CollectorPanel } from "./CollectorPanel";
 import { collector } from "../lib/collector";
+import { buildBackendSpec, buildStaticSite, downloadBlob } from "../lib/export";
 import { download } from "./PromptPanel";
 
 type View =
@@ -95,6 +96,23 @@ export function CollectTab({
               <Badge tone="good">
                 페이지 {capture.bundle.stats.pages} · 요청 {capture.har.endpoints.length}
               </Badge>
+              <Button
+                onClick={() => exportSite(capture)}
+                title="페이지 HTML + CSS·JS·폰트를 압축 풀면 바로 열리는 폴더로 내보냅니다"
+              >
+                정적 사이트 .zip
+              </Button>
+              <Button
+                onClick={() =>
+                  download(
+                    `backend-spec-${new Date().toISOString().slice(0, 10)}.md`,
+                    buildBackendSpec(capture),
+                  )
+                }
+                title="엔드포인트 스키마·데이터 모델·인증까지 담은 구현용 문서"
+              >
+                백엔드 명세 .md
+              </Button>
               <Button
                 variant="primary"
                 onClick={() => onUseCapture(capture)}
@@ -186,7 +204,7 @@ export function CollectTab({
           {view === "sitemap" && tree && <Sitemap node={tree} />}
           {view === "endpoints" && <Endpoints capture={capture} />}
           {view === "models" && <Models inference={inference} />}
-          {view === "backend" && <Backend inference={inference} />}
+          {view === "backend" && <Backend inference={inference} capture={capture} />}
           {view === "forms" && <Forms capture={capture} />}
           {view === "screens" && <Screens capture={capture} onUseImages={onUseImages} />}
         </>
@@ -536,8 +554,15 @@ function Models({ inference }: { inference: ReturnType<typeof inferBackend> }) {
   );
 }
 
-function Backend({ inference }: { inference: ReturnType<typeof inferBackend> }) {
+function Backend({
+  inference,
+  capture,
+}: {
+  inference: ReturnType<typeof inferBackend>;
+  capture: LoadedCapture;
+}) {
   const md = useMemo(() => inferenceToMarkdown(inference), [inference]);
+  const spec = useMemo(() => buildBackendSpec(capture), [capture]);
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <div className="space-y-4">
@@ -578,7 +603,10 @@ function Backend({ inference }: { inference: ReturnType<typeof inferBackend> }) 
         title="보고서"
         right={
           <>
-            <Button onClick={() => download("backend-inference.md", md)}>.md 저장</Button>
+            <Button onClick={() => download("backend-inference.md", md)}>요약 .md</Button>
+            <Button variant="primary" onClick={() => download("backend-spec.md", spec)}>
+              구현 명세 .md
+            </Button>
             <Button variant="primary" onClick={() => void navigator.clipboard.writeText(md)}>
               복사
             </Button>
@@ -811,6 +839,18 @@ function Screens({
       </Card>
     </div>
   );
+}
+
+/** 압축 풀면 그대로 열리는 정적 사이트로 내보낸다. */
+function exportSite(capture: LoadedCapture) {
+  const result = buildStaticSite(capture);
+  let name = "site";
+  try {
+    name = new URL(capture.bundle.seed).host.replace(/[^a-z0-9.-]/gi, "_");
+  } catch {
+    /* 기본값 */
+  }
+  downloadBlob(`${name}-static.zip`, result.blob);
 }
 
 /** CSS·JS 본문을 한 파일로 묶어 내려받는다 — 재현할 때 그대로 넣으면 된다. */

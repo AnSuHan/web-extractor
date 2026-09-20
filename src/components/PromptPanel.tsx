@@ -14,8 +14,12 @@ function download(filename: string, text: string) {
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  // 문서에 붙였다 떼야 확실히 동작하고, 해제는 미뤄야 한다 —
+  // click() 직후에 revoke 하면 브라우저가 파일을 다 읽기 전에 사라져 저장이 취소된다.
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 export function PromptPanel({
