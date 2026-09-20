@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:web": "tsc -b && node scripts/build-web.mjs",
+    "release:web": "node scripts/release-web.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

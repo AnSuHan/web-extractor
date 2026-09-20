@@ -182,9 +182,11 @@ Chrome for Testing 을 자동으로 받아옵니다(약 150MB, 처음 한 번).
 
 ```bash
 npm install
-npm start      # 런처 (run.bat 과 같음)
-npm run dev    # 개발 서버만 — localhost 는 다리 모드(시작은 확장 팝업에서)
-npm run build  # collector/app/ — 확장 안에 들어가는 앱
+npm start        # 런처 (run.bat 과 같음)
+npm run dev      # 개발 서버만 — localhost 는 다리 모드(시작은 확장 팝업에서)
+npm run build    # collector/app/ — 확장 안에 들어가는 앱
+npm run build:web    # dist/ — 웹에 올리는 빌드 (아래 "웹에 올려서 쓰기")
+npm run release:web  # dist/assets 를 GitHub 릴리스로 (호스팅이 큰 파일을 못 받을 때)
 ```
 
 소스를 고친 뒤에는 `run.bat` 을 다시 실행하면 바뀐 부분만 다시 빌드해서 띄웁니다.
@@ -192,6 +194,58 @@ npm run build  # collector/app/ — 확장 안에 들어가는 앱
 > **`collector/` 안의 확장 코드를 고쳤다면 `manifest.json` 의 `version` 도 올리세요.**
 > 브라우저를 껐다 켜도 서비스 워커가 옛 코드를 그대로 붙잡고 있는 경우가 있습니다
 > (버전이 바뀌면 확실히 새로 설치됩니다).
+
+## 웹에 올려서 쓰기
+
+이 앱은 **배포해도 모든 기능이 그대로 돌아갑니다.** 지금 올라가 있는 주소:
+
+```
+https://web-hosting.egghosting.com/web-extractor
+```
+
+### 수집까지 되는 이유
+
+일반 웹페이지에는 `chrome.*` 가 없어 수집을 시작할 수 없습니다. 우회가 아니라 MV3 의 정식
+통로인 **`externally_connectable`** 을 씁니다 — 매니페스트에 배포 도메인을 등록해 두면 그
+사이트의 페이지가 확장과 직접 메시지를 주고받습니다.
+
+```
+배포 사이트  ──(설정·시작 요청)──▶  확장 서비스 워커
+     ▲                                    │
+     └──(상태·진행·결과 조각)───────────┘
+```
+
+- **확장 ID 를 고정**했습니다(`manifest.json` 의 `key`). 압축 해제 확장의 ID 는 폴더 경로에서
+  파생돼 PC 마다 달라지는데, 배포된 앱이 확장을 지목하려면 고정이어야 합니다.
+- **시작만 확장 창에서 한 번 승인**합니다. 사이트 접근 권한 요청은 확장 컨텍스트의 사용자
+  제스처를 요구하고, 웹페이지가 조용히 수집을 켤 수 있어서도 안 되기 때문입니다.
+  배포 사이트에서 *수집 시작* 을 누르면 확장이 설정이 채워진 창을 열고, 거기서 승인하면
+  그 뒤의 진행·결과·분석·내보내기는 전부 배포 사이트에서 이어집니다.
+- 외부에서 받는 메시지는 `ping`·`status`·`export*`·`prefill`·`stop`·`reset`·`assets-more` 로
+  제한했습니다. 페이지 스냅샷·네트워크 기록은 **절대 받지 않습니다** — 받으면 웹페이지가
+  가짜 수집 결과를 밀어 넣을 수 있습니다.
+- 캡처가 수십 MB 라 결과는 조각으로 옮깁니다(`export-begin` → `export-chunk` → `export-end`).
+
+확장이 없는 방문자에게는 수집 UI 대신 안내가 뜨고, 캡처 `.json` 을 올려 분석·프롬프트·
+정적 사이트 `.zip`·백엔드 명세 `.md` 를 그대로 쓸 수 있습니다.
+
+### 배포하기
+
+```bash
+npm run build:web      # dist/ — 앱 + 의존성 없는 정적 서버(server.mjs) + package.json
+npm run release:web    # (선택) 자산을 GitHub 릴리스에 올리고 dist/assets-source.json 생성
+```
+
+`dist/` 를 그대로 올리면 끝입니다(`start: node server.mjs`, `PORT` 환경변수 사용).
+**파일을 인라인으로만 올릴 수 있는 호스팅**이라 500KB 짜리 번들을 밀어 넣기 어렵다면
+`release:web` 으로 자산을 공개 릴리스에 두고, 작은 파일들만 배포하세요 — 서버가 부팅할 때
+한 번 받아 디스크에 캐시합니다.
+
+하위 경로(`/web-extractor`)로 프록시되는 경우도 고려돼 있습니다. 프록시가 접두사를 떼고
+넘기면 서버가 알 수 없으므로, `index.html` 이 자기 위치를 보고 `<base>` 를 잡습니다.
+
+> 새 도메인에 올렸다면 `collector/manifest.json` 의 `externally_connectable.matches` 에 그
+> 오리진을 추가하고 **버전을 올려** 확장을 새로 로드해야 연결됩니다.
 
 ## 설계 노트
 
@@ -255,7 +309,10 @@ run.bat / run.sh      # 원클릭 런처 (설치 + 빌드 + 확장 로드된 브
 scripts/
 ├── start.ps1         # Windows 부트스트랩 (필요하면 Node 를 폴더 안에 받음)
 ├── launch.mjs        # 설치 확인 → 확장 안으로 빌드 → 브라우저 실행 → 앱 페이지 열기
-└── browser.mjs       # 브라우저 탐색·확장 로드 검증·Chrome for Testing 내려받기
+├── browser.mjs       # 브라우저 탐색·확장 로드 검증·Chrome for Testing 내려받기
+├── build-web.mjs     # 웹 배포용 빌드 (dist/ = 앱 + 서버 + package.json)
+├── deploy-server.mjs # 배포된 앱을 띄우는 정적 서버 (자산을 릴리스에서 받아올 수도 있음)
+└── release-web.mjs   # 자산을 GitHub 릴리스에 올리고 받아올 주소를 적어 둠
 
 collector/            # Chrome MV3 확장 (수집기)
 ├── manifest.json

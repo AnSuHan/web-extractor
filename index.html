@@ -3,6 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <script>
+      // 하위 경로(/web-extractor)에 슬래시 없이 들어오면 상대 경로가 한 칸 위로 잡혀
+      // 자산을 루트에서 찾게 된다. 프록시가 접두사를 떼고 넘기는 경우 서버는 이걸 알 수
+      // 없으므로, 문서가 스스로 기준 경로를 잡는다. 확장 페이지(…/index.html)처럼
+      // 마지막 조각에 확장자가 있으면 건드리지 않는다.
+      (function () {
+        var p = location.pathname;
+        if (!/\/$/.test(p) && !/\.[a-z0-9]+$/i.test(p)) {
+          var base = document.createElement("base");
+          base.href = p + "/";
+          document.head.appendChild(base);
+        }
+      })();
+    </script>
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0f14'/%3E%3Cpath d='M8 11h16M8 16h10M8 21h13' stroke='%236c8cff' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E"
