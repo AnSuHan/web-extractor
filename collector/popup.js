@@ -98,7 +98,9 @@ async function poll() {
       ? `정적 리소스 ${status.assets ?? 0}개`
       : status.manual
         ? `수동 탐색 중 (${status.pages})`
-        : `수집 중 (${status.visited}/${status.maxPages})`;
+        : status.maxPages > 0
+          ? `수집 중 (${status.visited}/${status.maxPages})`
+          : `수집 중 (${status.visited})`;
   $("s-pages").textContent = status.pages;
   $("s-queued").textContent = status.queued;
   $("s-net").textContent = status.net;

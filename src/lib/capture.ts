@@ -45,6 +45,8 @@ export interface CaptureAsset {
   bytes: number;
   encoding: "text" | "base64";
   body: string;
+  /** 어디서 받았는지 — "page" 는 수집 탭 안(페이지와 같은 인증 조건), "worker" 는 확장에서. */
+  via?: "page" | "worker";
 }
 
 export interface CaptureBundle {

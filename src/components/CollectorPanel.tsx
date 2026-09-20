@@ -8,9 +8,11 @@ const DEFAULT_FORM: CollectorForm = {
   seed: "",
   include: "",
   exclude: "**/logout**\n**/delete/**\n**/sign-out**",
-  maxPages: 200,
+  // 0 = 제한 없음. 큐가 빌 때까지 돈다.
+  maxPages: 0,
   maxDepth: 3,
-  delayMs: 1500,
+  delayMinMs: 1000,
+  delayMaxMs: 3000,
   sameOriginOnly: true,
   respectRobots: true,
   maskSecrets: true,
@@ -233,13 +235,13 @@ export function CollectorPanel({
             />
           </Field>
           <div className="grid grid-cols-3 gap-3">
-            <Field label="최대 페이지">
+            <Field label="최대 페이지" hint="0 = 제한 없음">
               <TextInput
                 type="number"
-                min={1}
-                max={500}
+                min={0}
+                max={5000}
                 value={form.maxPages}
-                onChange={(e) => patch({ maxPages: Number(e.target.value) || 40 })}
+                onChange={(e) => patch({ maxPages: Math.max(0, Number(e.target.value) || 0) })}
               />
             </Field>
             <Field label="최대 깊이">
@@ -251,14 +253,24 @@ export function CollectorPanel({
                 onChange={(e) => patch({ maxDepth: Number(e.target.value) || 3 })}
               />
             </Field>
-            <Field label="간격 (ms)">
-              <TextInput
-                type="number"
-                min={0}
-                step={250}
-                value={form.delayMs}
-                onChange={(e) => patch({ delayMs: Number(e.target.value) || 1500 })}
-              />
+            <Field label="대기 (ms)" hint="분석 후 이 범위에서 랜덤">
+              <div className="flex items-center gap-1.5">
+                <TextInput
+                  type="number"
+                  min={0}
+                  step={250}
+                  value={form.delayMinMs}
+                  onChange={(e) => patch({ delayMinMs: Math.max(0, Number(e.target.value) || 0) })}
+                />
+                <span className="text-xs text-ink-500">~</span>
+                <TextInput
+                  type="number"
+                  min={0}
+                  step={250}
+                  value={form.delayMaxMs}
+                  onChange={(e) => patch({ delayMaxMs: Math.max(0, Number(e.target.value) || 0) })}
+                />
+              </div>
             </Field>
           </div>
           <div>
@@ -381,7 +393,9 @@ export function CollectorPanel({
                           ? `정적 리소스 ${status.assets}개`
                           : status.manual
                             ? `수동 탐색 중 (${status.pages})`
-                            : `수집 중 ${status.visited}/${status.maxPages}`,
+                            : status.maxPages > 0
+                              ? `수집 중 ${status.visited}/${status.maxPages}`
+                              : `수집 중 ${status.visited} (제한 없음)`,
                     ],
                     ["페이지", String(status.pages)],
                     [

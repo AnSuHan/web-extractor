@@ -9,6 +9,9 @@ dist
 *.tsbuildinfo
 deploy/
 
+# 추출 결과물 (수집한 사이트의 내용이 들어 있다 — 저장소에 올리지 않는다)
+captures/
+
 # 런처가 만드는 것
 .browser-profile/
 .tools/

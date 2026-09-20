@@ -97,6 +97,12 @@ export function CollectTab({
                 페이지 {capture.bundle.stats.pages} · 요청 {capture.har.endpoints.length}
               </Badge>
               <Button
+                onClick={() => exportCaptureJson(capture)}
+                title="수집 원본을 파일로 저장합니다 — 다시 불러오면 같은 분석을 그대로 합니다"
+              >
+                캡처 .json 저장
+              </Button>
+              <Button
                 onClick={() => exportSite(capture)}
                 title="페이지 HTML + CSS·JS·폰트를 압축 풀면 바로 열리는 폴더로 내보냅니다"
               >
@@ -852,16 +858,25 @@ function Screens({
   );
 }
 
+/** 수집 원본(캡처 번들)을 파일로 저장한다. 웹에 올린 앱에서도 결과를 받아둘 수 있게. */
+function exportCaptureJson(capture: LoadedCapture) {
+  const blob = new Blob([JSON.stringify(capture.bundle)], { type: "application/json" });
+  downloadBlob(`${captureName(capture)}-capture.json`, blob);
+}
+
+/** 파일 이름에 쓸 대상 호스트. */
+function captureName(capture: LoadedCapture): string {
+  try {
+    return new URL(capture.bundle.seed).host.replace(/[^a-z0-9.-]/gi, "_");
+  } catch {
+    return "capture";
+  }
+}
+
 /** 압축 풀면 그대로 열리는 정적 사이트로 내보낸다. */
 function exportSite(capture: LoadedCapture) {
   const result = buildStaticSite(capture);
-  let name = "site";
-  try {
-    name = new URL(capture.bundle.seed).host.replace(/[^a-z0-9.-]/gi, "_");
-  } catch {
-    /* 기본값 */
-  }
-  downloadBlob(`${name}-static.zip`, result.blob);
+  downloadBlob(`${captureName(capture)}-static.zip`, result.blob);
 }
 
 /** CSS·JS 본문을 한 파일로 묶어 내려받는다 — 재현할 때 그대로 넣으면 된다. */

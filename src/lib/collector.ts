@@ -38,9 +38,12 @@ export interface CollectorForm {
   seed: string;
   include: string;
   exclude: string;
+  /** 0 이면 제한 없음 — 큐가 빌 때까지 돈다. */
   maxPages: number;
   maxDepth: number;
-  delayMs: number;
+  /** 다음 접속까지 쉬는 시간의 범위. 매번 이 사이에서 새로 뽑는다. */
+  delayMinMs: number;
+  delayMaxMs: number;
   sameOriginOnly: boolean;
   respectRobots: boolean;
   maskSecrets: boolean;
@@ -192,7 +195,8 @@ function toConfig(form: CollectorForm) {
     exclude: lines(form.exclude),
     maxPages: form.maxPages,
     maxDepth: form.maxDepth,
-    delayMs: form.delayMs,
+    delayMinMs: form.delayMinMs,
+    delayMaxMs: form.delayMaxMs,
     sameOriginOnly: form.sameOriginOnly,
     respectRobots: form.respectRobots,
     maskSecrets: form.maskSecrets,

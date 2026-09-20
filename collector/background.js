@@ -13,10 +13,15 @@ const DEFAULTS = {
   include: [],
   exclude: [],
   sameOriginOnly: true,
-  // 40 은 너무 얕았다 — 중간 규모 사이트도 4분의 1만 훑고 끝났다.
-  maxPages: 200,
+  /** 0 = 제한 없음. 큐가 빌 때까지 돈다. */
+  maxPages: 0,
   maxDepth: 3,
-  delayMs: 1500,
+  /**
+   * 다음 페이지로 넘어가기 전 대기. 고정 간격은 규칙적이라 오히려 눈에 띈다 —
+   * 페이지 분석이 끝난 시점부터 이 범위에서 매번 새로 뽑는다.
+   */
+  delayMinMs: 1000,
+  delayMaxMs: 3000,
   maskSecrets: true,
   captureHtml: true,
   respectRobots: true,
@@ -45,10 +50,16 @@ async function loadState() {
 
 function scheduleSave() {
   if (saveTimer) return;
-  saveTimer = setTimeout(async () => {
-    saveTimer = null;
-    if (state) await chrome.storage.local.set({ state });
-  }, 500);
+  // 저장은 상태를 통째로 직렬화한다. 이미지까지 받으면 수십 MB 가 되므로,
+  // 커질수록 저장 간격을 늘려 순회 속도를 잡아먹지 않게 한다.
+  const heavy = !!state && (state.assets?.length > 100 || state.pages?.length > 40);
+  saveTimer = setTimeout(
+    async () => {
+      saveTimer = null;
+      if (state) await chrome.storage.local.set({ state });
+    },
+    heavy ? 8000 : 500,
+  );
 }
 
 async function saveNow() {
@@ -155,8 +166,10 @@ function robotsAllows(robots, url) {
 async function start(config, tabId, manual = false) {
   const cfg = { ...DEFAULTS, ...config };
   const robots = cfg.respectRobots ? await fetchRobots(new URL(cfg.seed).origin) : null;
-  if (robots?.crawlDelay && robots.crawlDelay > cfg.delayMs) {
-    cfg.delayMs = robots.crawlDelay; // 사이트가 요구한 간격이 더 느리면 그걸 따른다.
+  // 사이트가 요구한 간격이 더 느리면 그걸 바닥으로 삼는다.
+  if (robots?.crawlDelay && robots.crawlDelay > cfg.delayMinMs) {
+    cfg.delayMinMs = robots.crawlDelay;
+    if (cfg.delayMaxMs < cfg.delayMinMs) cfg.delayMaxMs = cfg.delayMinMs + 1000;
   }
 
   state = {
@@ -234,6 +247,16 @@ async function unregisterScripts() {
   }
 }
 
+/** 다음 접속까지 쉴 시간. 매번 범위 안에서 새로 뽑는다. */
+function nextDelay() {
+  const cfg = state?.config ?? DEFAULTS;
+  const min = Math.max(0, Number(cfg.delayMinMs) || 0);
+  const max = Math.max(min, Number(cfg.delayMaxMs) || min);
+  return Math.round(min + Math.random() * (max - min));
+}
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
 /** 링크로 발견한 범위 안 URL 의 개수 — 방문 수와 비교하면 커버리지가 보인다. */
 function discoveredCount() {
   if (!state) return 0;
@@ -258,7 +281,7 @@ async function step() {
   if (!state?.running) return;
   const { config: cfg } = state;
 
-  if (state.visited.length >= cfg.maxPages) {
+  if (cfg.maxPages > 0 && state.visited.length >= cfg.maxPages) {
     note(`최대 페이지 수(${cfg.maxPages}) 도달 — 종료합니다.`);
     return finish();
   }
@@ -302,9 +325,9 @@ async function step() {
     if (state?.running && state.pending?.url === next.url) {
       note(`응답 없음, 건너뜀: ${next.url}`);
       state.pending = null;
-      setTimeout(step, state.config.delayMs);
+      setTimeout(step, nextDelay());
     }
-  }, 25000);
+  }, 45000);
 }
 
 async function finish() {
@@ -312,15 +335,18 @@ async function finish() {
   state.finishing = true;
   state.pending = null;
   clearTimeout(globalThis.__wxWatchdog);
-  await unregisterScripts();
   await detachDebugger();
 
   // 순회가 끝난 뒤에 정적 리소스를 받는다 — 페이지 이동 속도를 건드리지 않기 위해.
+  // 스크립트 등록은 아직 풀지 않는다: 리소스를 수집 탭 안에서 받아야 페이지와 같은
+  // 인증 조건(레퍼러·SameSite 쿠키)이 되기 때문이다.
   if (state.config.captureAssets || state.config.captureImages) {
     state.phase = "assets";
     await saveNow();
     await harvestAssets();
   }
+
+  await unregisterScripts();
 
   if (!state) return;
   state.phase = "done";
@@ -340,11 +366,12 @@ async function finish() {
  * 권한이 있는 오리진(=수집한 사이트)만 받는다. 외부 CDN 은 권한 밖이라 URL 만 남긴다.
  */
 const ASSET_LIMITS = {
-  maxCount: 600,
-  maxBytesEach: 2 * 1024 * 1024,
-  maxBytesTotal: 40 * 1024 * 1024,
-  concurrency: 2,
-  gapMs: 120,
+  maxCount: 2000,
+  maxBytesEach: 3 * 1024 * 1024,
+  maxBytesTotal: 120 * 1024 * 1024,
+  concurrency: 4,
+  // 페이지 접속에만 대기를 둔다. 자산은 페이지가 한꺼번에 받는 것과 같은 성격이라 쉬지 않는다.
+  gapMs: 0,
 };
 
 function assetKind(url, contentType) {
@@ -404,6 +431,71 @@ async function canFetchOrigin(origin) {
   return allowed;
 }
 
+function fromBase64(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+/**
+ * 리소스 하나를 받아 온다.
+ *
+ * **수집 중인 탭 안에서** 받는 것이 기본이다. 서비스 워커에서 받으면 요청에 `Referer` 가
+ * 없고 `SameSite` 쿠키가 붙지 않아서, 로그인 뒤에만 열리는 자산이나 핫링크를 막아 둔
+ * 서버에서 403 이 난다. 탭 안에서 받으면 페이지가 스스로 받는 것과 같은 조건이 된다.
+ *
+ * 탭이 닫혔거나 주입에 실패하면 서비스 워커로 물러난다.
+ */
+async function fetchAsset(url) {
+  const tabId = state?.tabId;
+  if (tabId) {
+    try {
+      const [injected] = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: "ISOLATED",
+        args: [url],
+        func: async (target) => {
+          try {
+            const res = await fetch(target, { credentials: "include" });
+            const buffer = await res.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            let binary = "";
+            const CHUNK = 0x8000;
+            for (let i = 0; i < bytes.length; i += CHUNK) {
+              binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+            }
+            return {
+              ok: res.ok,
+              status: res.status,
+              contentType: res.headers.get("content-type") ?? "",
+              base64: btoa(binary),
+            };
+          } catch (err) {
+            return { error: String(err?.message ?? err) };
+          }
+        },
+      });
+      const result = injected?.result;
+      if (result && !result.error) {
+        return { ...result, bytes: fromBase64(result.base64), via: "page" };
+      }
+    } catch {
+      /* 탭이 없거나 주입 불가 — 서비스 워커로 받는다 */
+    }
+  }
+
+  const res = await fetch(url, { credentials: "include" });
+  const buffer = await res.arrayBuffer();
+  return {
+    ok: res.ok,
+    status: res.status,
+    contentType: res.headers.get("content-type") ?? "",
+    bytes: new Uint8Array(buffer),
+    via: "worker",
+  };
+}
+
 async function harvestAssets() {
   const cfg = state.config;
 
@@ -455,33 +547,37 @@ async function harvestAssets() {
         continue;
       }
       try {
-        const res = await fetch(url, { credentials: "include" });
-        const contentType = res.headers.get("content-type") ?? "";
-        const kind = assetKind(url, contentType);
-        const buffer = await res.arrayBuffer();
-        if (buffer.byteLength > ASSET_LIMITS.maxBytesEach) {
-          state.assetSkipped.push({ url, reason: `파일이 너무 큼 (${buffer.byteLength}B)` });
+        const res = await fetchAsset(url);
+        if (!res.ok) {
+          state.assetSkipped.push({ url, reason: `HTTP ${res.status} (${res.via})` });
           continue;
         }
-        total += buffer.byteLength;
+        const kind = assetKind(url, res.contentType);
+        if (res.bytes.length > ASSET_LIMITS.maxBytesEach) {
+          state.assetSkipped.push({ url, reason: `파일이 너무 큼 (${res.bytes.length}B)` });
+          continue;
+        }
+        total += res.bytes.length;
         const isText = kind === "css" || kind === "js" || kind === "text";
         state.assets.push({
           url,
           kind,
           status: res.status,
-          contentType,
-          bytes: buffer.byteLength,
+          contentType: res.contentType,
+          bytes: res.bytes.length,
           encoding: isText ? "text" : "base64",
-          body: isText ? new TextDecoder().decode(buffer) : toBase64(buffer),
+          body: isText ? new TextDecoder().decode(res.bytes) : toBase64(res.bytes.buffer),
+          // 어떤 경로로 받았는지 남긴다 — 페이지 안에서 받은 것이 인증 조건이 같다.
+          via: res.via,
         });
       } catch (err) {
         state.assetSkipped.push({ url, reason: String(err?.message ?? err) });
       }
-      if (state.assets.length % 25 === 0) {
+      if (state.assets.length % 50 === 0) {
         note(`정적 리소스 ${state.assets.length}/${capped.length}`);
-        scheduleSave();
       }
-      await new Promise((r) => setTimeout(r, ASSET_LIMITS.gapMs));
+      if (state.assets.length % 200 === 0) scheduleSave();
+      if (ASSET_LIMITS.gapMs > 0) await wait(ASSET_LIMITS.gapMs);
     }
   };
 
@@ -745,6 +841,11 @@ async function handleMessage(msg, sender, sendResponse) {
       case "page-done": {
         if (state?.running) {
           const tabId = sender.tab?.id ?? state.tabId;
+
+          // 대기는 **다음 접속 전에만** 둔다. 화면 캡처는 탭이 이동하기 전에 끝나야 하므로
+          // 붙잡되, 대기와 나란히 돌려서 둘 중 긴 쪽만큼만 쉬게 한다.
+          const delay = nextDelay();
+          const resting = wait(delay);
           const shot = await captureScreen(tabId);
           if (shot) {
             // 마지막으로 들어온 같은 URL 의 스냅샷에 붙인다.
@@ -764,8 +865,8 @@ async function handleMessage(msg, sender, sendResponse) {
           if (state.pending) {
             clearTimeout(globalThis.__wxWatchdog);
             state.pending = null;
-            note(`수집 완료: ${msg.url}`);
-            setTimeout(step, state.config.delayMs);
+            note(`수집 완료: ${msg.url} (다음까지 ${delay}ms)`);
+            void resting.then(() => step());
           }
         }
         sendResponse({ ok: true });
