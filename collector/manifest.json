@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "web-extractor collector",
+  "version": "1.0.0",
+  "description": "권한이 있는 웹앱을 내 브라우저 세션으로 돌아다니며 API 응답·HTML 구조·백엔드 단서를 수집합니다.",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "scripting",
+    "tabs",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "https://api.anthropic.com/*"
+  ],
+  "optional_host_permissions": [
+    "*://*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "web-extractor collector"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "announce.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}

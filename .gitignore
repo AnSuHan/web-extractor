@@ -1,0 +1,16 @@
+node_modules
+dist
+.DS_Store
+*.local
+.env
+.env.*
+
+# 빌드 산출물
+*.tsbuildinfo
+
+# 런처가 만드는 것
+.browser-profile/
+.tools/
+
+# 확장 안으로 빌드되는 앱 (run.bat 이 자동 생성)
+collector/app/

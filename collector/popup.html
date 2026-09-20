@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>web-extractor collector</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d0f14;
+        --panel: #12151c;
+        --line: #222834;
+        --text: #e6eaf2;
+        --dim: #97a1b4;
+        --accent: #6c8cff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        width: 320px;
+        padding: 16px;
+        background: var(--bg);
+        color: var(--text);
+        font: 13px/1.5 ui-sans-serif, system-ui, "Malgun Gothic", sans-serif;
+      }
+      h1 { margin: 0 0 3px; font-size: 13px; }
+      p.sub { margin: 0 0 14px; color: var(--dim); font-size: 11px; }
+      button {
+        width: 100%;
+        padding: 9px 12px;
+        border-radius: 7px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+      }
+      button.primary {
+        background: var(--accent);
+        color: #08090c;
+        font-weight: 600;
+        border-color: transparent;
+      }
+      button + button { margin-top: 7px; }
+      button:disabled { opacity: .45; cursor: not-allowed; }
+      #status {
+        margin-top: 14px;
+        border-top: 1px solid var(--line);
+        padding-top: 11px;
+      }
+      .stat { display: flex; justify-content: space-between; font-size: 11px; color: var(--dim); }
+      .stat b { color: var(--text); font-weight: 600; }
+      .hidden { display: none; }
+      .hint { margin-top: 12px; font-size: 10px; color: var(--dim); line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <h1>web-extractor collector</h1>
+    <p class="sub">내 브라우저 세션으로 돌아다니며 API 응답·HTML 구조를 수집합니다.</p>
+
+    <button class="primary" id="open">앱 열기</button>
+    <button id="export" disabled>결과 파일로 저장</button>
+    <button id="stop" class="hidden">수집 중단</button>
+    <button id="reset">수집 기록 비우기</button>
+
+    <div id="status" class="hidden">
+      <div class="stat"><span>상태</span><b id="s-state">–</b></div>
+      <div class="stat"><span>방문한 페이지</span><b id="s-pages">0</b></div>
+      <div class="stat"><span>대기 중</span><b id="s-queued">0</b></div>
+      <div class="stat"><span>잡은 요청</span><b id="s-net">0</b></div>
+    </div>
+
+    <p class="hint">
+      설정과 시작은 <b>앱 안</b>에서 합니다. 앱이 확장 페이지로 열리므로 권한 요청도
+      거기서 처리됩니다.
+    </p>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

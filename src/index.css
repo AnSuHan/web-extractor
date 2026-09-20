@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink-950: #08090c;
+  --color-ink-900: #0d0f14;
+  --color-ink-850: #12151c;
+  --color-ink-800: #171b24;
+  --color-ink-700: #222834;
+  --color-ink-600: #323a4a;
+  --color-ink-400: #6b7588;
+  --color-ink-300: #97a1b4;
+  --color-ink-200: #c3cad8;
+  --color-ink-100: #e6eaf2;
+
+  --color-accent-500: #6c8cff;
+  --color-accent-400: #8aa3ff;
+  --color-accent-300: #aabcff;
+
+  --font-sans:
+    ui-sans-serif, system-ui, "Pretendard", "Apple SD Gothic Neo",
+    "Malgun Gothic", sans-serif;
+  --font-mono:
+    ui-monospace, "SFMono-Regular", "Cascadia Mono", "JetBrains Mono", Consolas,
+    monospace;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ink-950);
+  color: var(--color-ink-100);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 얇은 스크롤바 — 코드 패널이 화면을 지배하지 않도록 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-ink-700);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-600);
+  background-clip: content-box;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent-400);
+  outline-offset: 2px;
+}
