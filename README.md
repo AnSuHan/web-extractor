@@ -349,3 +349,24 @@ src/
 ```
 
 스택: React 19 + TypeScript + TailwindCSS v4 + Vite 7.
+
+## egg-crawler — 에그호스팅에서 서버사이드로 수집
+
+`egg-crawler/` 는 **로컬 브라우저 없이 에그호스팅(서버)에서 직접 도는** 수집기다.
+확장/GUI 대신 `fetch` 로 대상 사이트에 **로그인해서** 순회하고, 결과를 **뷰어로 보여주며
+언제든 내려받게** 한다. (현재 대상: `klata.or.kr`. 자격증명은 코드가 아니라 `.env` 에서만 읽는다.)
+
+```
+egg-crawler/
+├── server.mjs      # 부팅 즉시 listen(헬스 통과) → 백그라운드로 수집 → 뷰어/다운로드
+├── crawler.mjs     # 인증·순회·정적리소스 로컬화·링크 재작성·개인정보 목업 치환
+├── package.json    # start: node server.mjs (의존성 0)
+└── .env.example    # KL_ID / KL_PW / RECRAWL_KEY (실제 .env 는 커밋 안 함)
+```
+
+엔드포인트: `/`(수집 끝나면 사이트, 아니면 진행 상태) · `/status`(JSON) ·
+`/download.tar.gz`(결과물 전체) · `/recrawl?key=<RECRAWL_KEY>`(재수집).
+
+- **수집물(`site/`)과 `.env` 는 저장소에 올리지 않는다** — 스크래핑 콘텐츠·자격증명 비커밋.
+- 수집한 개인정보(이름/이메일/전화/생년월일/회원ID)는 **목업 값으로 치환**된다.
+- 배포한 캡처는 원 기관 사이트가 아니라 **참고·확인용 목업**이다.

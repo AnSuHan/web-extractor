@@ -1,0 +1,13 @@
+{
+  "name": "klata-egg-crawler",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "klata.or.kr 인증 수집 + 목업 뷰어 + 결과물 다운로드 (에그호스팅에서 서버사이드로 실행)",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

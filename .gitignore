@@ -18,3 +18,9 @@ captures/
 
 # 확장 안으로 빌드되는 앱 (run.bat 이 자동 생성)
 collector/app/
+
+# egg-crawler: 서버가 만드는 수집물과 자격증명은 커밋하지 않는다
+egg-crawler/site/
+egg-crawler/site.tmp/
+# .env 는 위에서 무시됨. 예시 파일은 커밋한다.
+!egg-crawler/.env.example
