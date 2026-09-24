@@ -1,0 +1,9 @@
+{
+  "name": "klata-capture",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "klata.or.kr 정적 캡처(목업) 뷰어 — 에그호스팅 별도 앱/경로",
+  "scripts": { "start": "node server.mjs" },
+  "engines": { "node": ">=20" }
+}
